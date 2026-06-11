@@ -288,7 +288,7 @@ net force = mass × acceleration
 ```
 ![Velocity proof page 1](docs/images/velocity-proof-1.png)
 
-![Velocity proof page 2](docs/images/velocity-proof-2.pbg)
+![Velocity proof page 2](docs/images/velocity-proof-2.png)
 
 ## Depth Calculation
 
