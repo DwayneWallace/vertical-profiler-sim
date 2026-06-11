@@ -286,10 +286,9 @@ The basic force relationship is:
 ```text
 net force = mass × acceleration
 ```
-![Velocity proof page 1](docs/images/velocity-proof-1.png)
+![Velocity and buoyancy proof page 1](https://raw.githubusercontent.com/DwayneWallace/vertical-profiler-sim/main/docs/images/velocity-proof-1.png)
 
-![Velocity proof page 2](docs/images/velocity-proof-2.png)
-
+![Velocity and buoyancy proof page 2](https://raw.githubusercontent.com/DwayneWallace/vertical-profiler-sim/main/docs/images/velocity-proof-2.png)
 ## Depth Calculation
 
 Depth is updated from velocity:
@@ -346,13 +345,13 @@ The goal of this layout is to keep the simulator useful as a tuning tool without
 
 ### Example Run - Target Tracking
 
-![VP simulator target tracking example](docs/images/vp-sim-window-1.png)
+![VP simulator target tracking example](https://raw.githubusercontent.com/DwayneWallace/vertical-profiler-sim/main/docs/images/vp-sim-window-1.png)
 
 This example shows the profiler tracking a shallow target depth. The top graph compares true depth, measured depth, and target depth. The lower graph shows actuator command in microseconds. The depth-view panel on the right shows the current simulated profiler position, target marker, current state, velocity, and actuator command.
 
 ### Example Run - Mission Transition
 
-![VP simulator mission transition example](docs/images/vp-sim-window-2.png)
+![VP simulator mission transition example](https://raw.githubusercontent.com/DwayneWallace/vertical-profiler-sim/main/docs/images/vp-sim-window-2.png)
 
 This example shows a deeper mission profile where the target changes during the run. The depth graph shows the profiler descending toward the deep target, then transitioning toward the shallower target. The actuator graph shows how the PID loop changes the buoyancy command while the vehicle is still moving.
 
