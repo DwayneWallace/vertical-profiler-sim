@@ -66,8 +66,6 @@ A vertical profiler configuration using:
 
 ### Rays 2026
 
-A similar current-generation profiler configuration with a different default PID gain and mission depth settings.
-
 ### Rays 2024
 
 An earlier profiler configuration using:
@@ -279,37 +277,22 @@ depth = depth + velocity × dt
 
 This allows the profiler to keep moving even after the actuator changes command, which is important for modeling overshoot and oscillation.
 
-## Handwritten Velocity Proof
+## Velocity and Buoyancy Proof
 
-The simulator’s velocity calculation was based on a handwritten proof and derivation.
+The simulator’s motion model is based on a force balance between weight, buoyancy, and drag. The purpose of this proof was to estimate how much displaced volume is needed to reach or hold a desired vertical velocity.
 
-### Velocity Proof Photo 1
+The basic force relationship is:
 
-Add image here:
+```text
+net force = mass × acceleration
+```
 
 ```markdown
 ![Velocity proof page 1](docs/images/velocity-proof-1.jpg)
 ```
 
-### Velocity Proof Photo 2
-
-Add image here:
-
 ```markdown
 ![Velocity proof page 2](docs/images/velocity-proof-2.jpg)
-```
-
-Place the images in:
-
-```text
-docs/images/
-```
-
-Suggested file names:
-
-```text
-velocity-proof-1.jpg
-velocity-proof-2.jpg
 ```
 
 ## Depth Calculation
@@ -360,9 +343,23 @@ If it leaves the tolerance band, the hold timer resets.
 
 This matches the behavior expected from a real profiler mission where the vehicle must actually stay near the target, not just touch it once.
 
-## Graphs and Display
+## Simulator Window
 
-The simulator displays three main visual areas.
+The simulator runs as a local Python Matplotlib window. The window includes VP profile selection, mission settings, PID settings, start/pause/reset controls, a live depth graph, actuator command graph, and a depth-view graphic.
+
+The goal of this layout is to keep the simulator useful as a tuning tool without needing extra software or hardware connected.
+
+### Example Run - Target Tracking
+
+![VP simulator target tracking example](docs/images/vp-sim-window-1.png)
+
+This example shows the profiler tracking a shallow target depth. The top graph compares true depth, measured depth, and target depth. The lower graph shows actuator command in microseconds. The depth-view panel on the right shows the current simulated profiler position, target marker, current state, velocity, and actuator command.
+
+### Example Run - Mission Transition
+
+![VP simulator mission transition example](docs/images/vp-sim-window-2.png)
+
+This example shows a deeper mission profile where the target changes during the run. The depth graph shows the profiler descending toward the deep target, then transitioning toward the shallower target. The actuator graph shows how the PID loop changes the buoyancy command while the vehicle is still moving.
 
 ### Depth Plot
 
@@ -410,43 +407,6 @@ The simulator makes it easier to see how different PID gains affect:
 
 This makes it a useful first step before pool testing.
 
-## Known Limitations
-
-This simulator uses simplified physics.
-
-Current limitations include:
-
-* No full actuator delay model yet
-* No detailed pressure sensor model
-* No fluid turbulence model
-* No wave or surface disturbance model
-* No battery voltage effects
-* No mechanical backlash model
-* No real buoyancy engine geometry model
-* No leak or trapped air behavior
-* No data logging export yet
-* No automatic PID tuning method yet
-
-The simulator is still useful for controller development, but real testing is still required.
-
-## Future Improvements
-
-Possible future improvements include:
-
-* Better actuator response model
-* More detailed buoyancy engine simulation
-* Config files loaded from JSON
-* Data export to CSV
-* More realistic pressure sensor simulation
-* Adjustable drag model
-* Additional controller options besides PID
-* Feed-forward control
-* Braking behavior before target depth
-* Automatic PID tuning tools
-* Web-based simulator view
-* More profiler presets
-* Mission editor
-
 ## Running the Simulator
 
 Install the required Python packages:
@@ -467,29 +427,9 @@ If the file has a different name, run:
 python your_file_name.py
 ```
 
-## Suggested Repo Structure
-
-```text
-vertical-profiler-sim/
-  README.md
-  vp_sim.py
-  requirements.txt
-  docs/
-    images/
-      velocity-proof-1.jpg
-      velocity-proof-2.jpg
-```
-
 ## Requirements
 
 The simulator currently uses:
-
-```text
-numpy
-matplotlib
-```
-
-Put this in `requirements.txt`:
 
 ```text
 numpy
