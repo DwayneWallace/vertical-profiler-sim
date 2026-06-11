@@ -286,14 +286,9 @@ The basic force relationship is:
 ```text
 net force = mass × acceleration
 ```
-
-```markdown
 ![Velocity proof page 1](docs/images/velocity-proof-1.jpg)
-```
 
-```markdown
 ![Velocity proof page 2](docs/images/velocity-proof-2.jpg)
-```
 
 ## Depth Calculation
 
