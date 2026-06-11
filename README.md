@@ -25,28 +25,6 @@ This simulator was created to help answer questions such as:
 * How does the mission behave when the profiler has limited buoyancy force?
 * Would a different controller work better than a basic PID loop?
 
-## Current Features
-
-The current simulator includes:
-
-* Multiple saved vertical profiler configurations
-* Editable mission settings
-* Editable PID settings
-* Start, pause, reset, and apply controls
-* Radio button selection between profiler designs
-* Real-time depth graph
-* Real-time actuator command graph
-* Simple water-column depth graphic
-* Target depth marker
-* Target tolerance band
-* Simulated measured depth with sensor noise
-* Mission state machine
-* PID control loop
-* Buoyancy force calculation
-* Drag force calculation
-* Actuator command mapping
-* Velocity and acceleration simulation
-
 ## Included Vehicle Profiles
 
 The simulator currently includes three profiler configurations:
@@ -79,64 +57,9 @@ An earlier profiler configuration using:
 * Actuator range: 1000–1300 µs
 * Neutral command: 1150 µs
 
-## Mission Model
-
-The simulator uses a mission state machine. The profiler moves through a sequence of target depths and hold states.
-
-The current mission states are:
-
-* `IDLE`
-* `DESCEND_1`
-* `HOLD_DEEP_1`
-* `ASCEND_1`
-* `HOLD_SHALLOW_1`
-* `DESCEND_2`
-* `HOLD_DEEP_2`
-* `ASCEND_2`
-* `HOLD_SHALLOW_2`
-* `STATION_KEEP`
-* `RECOVER_SURFACE`
-* `DONE`
-
-The mission moves between states based on:
-
-* Whether the measured depth is inside the tolerance band
-* How long the profiler has held its target
-* Maximum transit time
-* Maximum hold time
-* Surface recovery timeout
-
-The hold timer resets if the profiler leaves the target tolerance range.
-
 ## PID Control
 
-The simulator uses a basic PID control loop to drive the buoyancy engine toward the current target depth.
-
-The depth error is calculated as:
-
-```text
-error = target depth - measured depth
-```
-
-The PID output is calculated from:
-
-```text
-output = Kp × error + Ki × integral + Kd × derivative
-```
-
-The PID output is added to the actuator neutral command:
-
-```text
-actuator command = neutral command + PID output
-```
-
-The actuator command is then clamped to the allowed actuator range:
-
-```text
-min command ≤ actuator command ≤ max command
-```
-
-The simulator includes integral clamping to prevent the integral term from growing too large.
+The simulator uses a PID control loop identical to the one used one each vertical profiler to drive the buoyancy engine toward the current target depth. 
 
 ## Actuator Model
 
@@ -279,7 +202,7 @@ This allows the profiler to keep moving even after the actuator changes command,
 
 ## Velocity and Buoyancy Proof
 
-The simulator’s motion model is based on a force balance between weight, buoyancy, and drag. The purpose of this proof was to estimate how much displaced volume is needed to reach or hold a desired vertical velocity.
+The simulator’s motion model is based on a proof that i have done in the past to calculate the velocity of a vertical profiler. most of the equations are the same. 
 
 The basic force relationship is:
 
@@ -289,6 +212,7 @@ net force = mass × acceleration
 ![Velocity and buoyancy proof page 1](https://raw.githubusercontent.com/DwayneWallace/vertical-profiler-sim/main/docs/images/velocity-proof-1.png)
 
 ![Velocity and buoyancy proof page 2](https://raw.githubusercontent.com/DwayneWallace/vertical-profiler-sim/main/docs/images/velocity-proof-2.png)
+
 ## Depth Calculation
 
 Depth is updated from velocity:
@@ -335,71 +259,17 @@ If the profiler is inside the tolerance band during a hold state, the hold timer
 
 If it leaves the tolerance band, the hold timer resets.
 
-This matches the behavior expected from a real profiler mission where the vehicle must actually stay near the target, not just touch it once.
+This matches the behavior expected from a real profiler mission where the vehicle must actually stay near the target.
 
-## Simulator Window
-
-The simulator runs as a local Python Matplotlib window. The window includes VP profile selection, mission settings, PID settings, start/pause/reset controls, a live depth graph, actuator command graph, and a depth-view graphic.
-
-The goal of this layout is to keep the simulator useful as a tuning tool without needing extra software or hardware connected.
-
-### Example Run - Target Tracking
+### Example Run
 
 ![VP simulator target tracking example](https://raw.githubusercontent.com/DwayneWallace/vertical-profiler-sim/main/docs/images/vp-sim-window-1.png)
 
-This example shows the profiler tracking a shallow target depth. The top graph compares true depth, measured depth, and target depth. The lower graph shows actuator command in microseconds. The depth-view panel on the right shows the current simulated profiler position, target marker, current state, velocity, and actuator command.
-
-### Example Run - Mission Transition
-
 ![VP simulator mission transition example](https://raw.githubusercontent.com/DwayneWallace/vertical-profiler-sim/main/docs/images/vp-sim-window-2.png)
-
-This example shows a deeper mission profile where the target changes during the run. The depth graph shows the profiler descending toward the deep target, then transitioning toward the shallower target. The actuator graph shows how the PID loop changes the buoyancy command while the vehicle is still moving.
-
-### Depth Plot
-
-The depth plot shows:
-
-* True depth
-* Measured depth
-* Target depth
-
-The y-axis is inverted so deeper values appear lower on the graph.
-
-### Actuator Plot
-
-The actuator plot shows the actuator command in microseconds over time.
-
-This helps show when the controller is commanding more buoyancy or less buoyancy.
-
-### Depth Graphic
-
-The depth graphic shows:
-
-* A simplified water column
-* Current profiler position
-* Target depth
-* Target tolerance band
-* Current mission state
-* Current velocity
-* Current actuator command
-
-This gives a quick visual reference for what the profiler is doing during the mission.
 
 ## Why This Is Useful for PID Tuning
 
-A real profiler can be frustrating to tune because changes take time to show up. The vehicle has low available force, drag changes with velocity, and the actuator does not instantly cancel motion.
-
-The simulator makes it easier to see how different PID gains affect:
-
-* Rise time
-* Overshoot
-* Oscillation
-* Settling behavior
-* Hold performance
-* Actuator saturation
-* Mission completion
-
-This makes it a useful first step before pool testing.
+A real profiler can be frustrating to tune because editing code and reflashing can take minutes. In adition it may be hard to observe as well as get data in a reasonable amoutn of time. The vehicle has low available force, drag changes with velocity. The simulator makes it easier to see how different PID gains affect the profile. 
 
 ## Running the Simulator
 
@@ -429,11 +299,3 @@ The simulator currently uses:
 numpy
 matplotlib
 ```
-
-## Summary
-
-The Vertical Profiler Simulator is a Python test bed for modeling vertical profiler behavior and tuning PID loops before testing on real hardware.
-
-It models the main forces acting on the profiler, including weight, buoyancy, and drag. It also simulates depth, velocity, acceleration, actuator command, sensor noise, mission state changes, and PID control response.
-
-The purpose is to make vertical profiler tuning easier, faster, and more understandable.
