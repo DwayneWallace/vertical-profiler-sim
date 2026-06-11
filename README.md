@@ -59,7 +59,7 @@ An earlier profiler configuration using:
 
 ## PID Control
 
-The simulator uses a PID control loop identical to the one used one each vertical profiler to drive the buoyancy engine toward the current target depth. 
+The simulator uses a PID control loop similar to the one used on each vertical profiler to drive the buoyancy engine toward the current target depth. 
 
 ## Actuator Model
 
@@ -202,7 +202,7 @@ This allows the profiler to keep moving even after the actuator changes command,
 
 ## Velocity and Buoyancy Proof
 
-The simulator’s motion model is based on a proof that i have done in the past to calculate the velocity of a vertical profiler. most of the equations are the same. 
+The simulator’s motion model is based on a proof I did in the past to calculate the velocity of a vertical profiler. Most of the equations are the same.
 
 The basic force relationship is:
 
@@ -269,7 +269,7 @@ This matches the behavior expected from a real profiler mission where the vehicl
 
 ## Why This Is Useful for PID Tuning
 
-A real profiler can be frustrating to tune because editing code and reflashing can take minutes. In adition it may be hard to observe as well as get data in a reasonable amoutn of time. The vehicle has low available force, drag changes with velocity. The simulator makes it easier to see how different PID gains affect the profile. 
+A real profiler can be frustrating to tune because editing code and reflashing can take several minutes. In addition, it can be hard to observe the profiler and collect data in a reasonable amount of time. The vehicle has low available force, and drag changes with velocity. The simulator makes it easier to see how different PID gains affect the profiler.
 
 ## Running the Simulator
 
