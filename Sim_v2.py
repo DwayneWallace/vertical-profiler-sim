@@ -17,9 +17,9 @@ CONTROLLER_MODES = [
 VP_CONFIGS = {
     "LBCC 2026": {
         "vehicle": {
-            "mass": 1.2,
-            "rho": 1023.0,
-            "neutral_volume_m3": 0.001173,
+            "mass": 1.076,
+            "rho": 999.0,
+            "neutral_volume_m3": 0.001077,
             "reference_area_m2": 0.0070,
             "drag_coefficient": 0.9,
             "buoyancy_engine_delta_m3": 19.6e-6,
