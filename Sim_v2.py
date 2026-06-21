@@ -6,6 +6,14 @@ from matplotlib.widgets import Button, RadioButtons, TextBox
 # -----------------------------
 # VP configuration database
 # -----------------------------
+CONTROLLER_MODES = [
+    "Classic PID",
+    "Velocity Differential",
+    "Adaptive Trim PID",
+    "Deadband Potential",
+    "Three State",
+]
+
 VP_CONFIGS = {
     "LBCC 2026": {
         "vehicle": {
@@ -15,6 +23,9 @@ VP_CONFIGS = {
             "reference_area_m2": 0.0070,
             "drag_coefficient": 0.9,
             "buoyancy_engine_delta_m3": 19.6e-6,
+            # Positive = too buoyant by this many grams at neutral actuator command.
+            # Negative = too heavy by this many grams at neutral actuator command.
+            "true_buoyancy_offset_g": 0.0,
         },
         "actuator": {
             "min_us": 500,
@@ -29,12 +40,25 @@ VP_CONFIGS = {
             "depth_noise_std_m": 0.002,
         },
         "pid": {
-            "kp": 20.0,
+            "kp": 400.0,
             "ki": 0.0,
             "kd": 0.0,
             "interval_s": 0.10,
-            "integral_min": -1.5,
-            "integral_max": 1.5,
+            "integral_min": -2.0,
+            "integral_max": 2.0,
+        },
+        "controller": {
+            "mode": "Adaptive Trim PID",
+            "kp": 450.0,
+            "ki": 25.0,
+            "kd": 1200.0,
+            "deadband_m": 0.05,
+            "output_limit_us": 700.0,
+            "trim_limit_us": 75.0,
+            "trim_velocity_max_mps": 0.025,
+            "velocity_alpha": 0.25,
+            "deeper_command_us": 1850.0,
+            "shallower_command_us": 1150.0,
         },
         "mission": {
             "deep_m": 2.50,
@@ -58,6 +82,7 @@ VP_CONFIGS = {
             "reference_area_m2": 0.0070,
             "drag_coefficient": 0.9,
             "buoyancy_engine_delta_m3": 19.6e-6,
+            "true_buoyancy_offset_g": 0.0,
         },
         "actuator": {
             "min_us": 500,
@@ -76,8 +101,21 @@ VP_CONFIGS = {
             "ki": 0.0,
             "kd": 0.0,
             "interval_s": 0.10,
-            "integral_min": -1.5,
-            "integral_max": 1.5,
+            "integral_min": -2.0,
+            "integral_max": 2.0,
+        },
+        "controller": {
+            "mode": "Adaptive Trim PID",
+            "kp": 300.0,
+            "ki": 20.0,
+            "kd": 1500.0,
+            "deadband_m": 0.03,
+            "output_limit_us": 650.0,
+            "trim_limit_us": 75.0,
+            "trim_velocity_max_mps": 0.025,
+            "velocity_alpha": 0.25,
+            "deeper_command_us": 1800.0,
+            "shallower_command_us": 1200.0,
         },
         "mission": {
             "deep_m": 0.60,
@@ -101,6 +139,7 @@ VP_CONFIGS = {
             "reference_area_m2": 0.0080,
             "drag_coefficient": 0.8,
             "buoyancy_engine_delta_m3": 26.0e-6,
+            "true_buoyancy_offset_g": 0.0,
         },
         "actuator": {
             "min_us": 1000,
@@ -119,8 +158,21 @@ VP_CONFIGS = {
             "ki": 0.0,
             "kd": 0.0,
             "interval_s": 0.10,
-            "integral_min": -1.5,
-            "integral_max": 1.5,
+            "integral_min": -2.0,
+            "integral_max": 2.0,
+        },
+        "controller": {
+            "mode": "Adaptive Trim PID",
+            "kp": 45.0,
+            "ki": 8.0,
+            "kd": 500.0,
+            "deadband_m": 0.06,
+            "output_limit_us": 120.0,
+            "trim_limit_us": 30.0,
+            "trim_velocity_max_mps": 0.025,
+            "velocity_alpha": 0.25,
+            "deeper_command_us": 1240.0,
+            "shallower_command_us": 1060.0,
         },
         "mission": {
             "deep_m": 2.5,
@@ -139,11 +191,7 @@ VP_CONFIGS = {
 
 SELECTED_VP = "LBCC 2026"
 
-# -----------------------------
-# Simple single-target step
-# For STEP 1, keep mission logic simple
-# just drive to deep target in real time
-# -----------------------------
+
 class VPSim:
     IDLE = 0
     DESCEND_1 = 1
@@ -192,9 +240,18 @@ class VPSim:
         hold_s,
         tol_m,
         surface_tol_m,
+        true_buoyancy_offset_g,
+        engine_ml,
         kp,
         ki,
         kd,
+        deadband_m,
+        output_limit_us,
+        trim_limit_us,
+        trim_velocity_max_mps,
+        velocity_alpha,
+        deeper_command_us,
+        shallower_command_us,
     ):
         self.cfg["mission"]["deep_m"] = deep_m
         self.cfg["mission"]["shallow_m"] = shallow_m
@@ -203,11 +260,34 @@ class VPSim:
         self.cfg["mission"]["tol_m"] = tol_m
         self.cfg["mission"]["surface_tol_m"] = surface_tol_m
 
+        self.cfg["vehicle"]["true_buoyancy_offset_g"] = true_buoyancy_offset_g
+        self.cfg["vehicle"]["buoyancy_engine_delta_m3"] = engine_ml * 1.0e-6
+
+        # Keep the old pid fields useful for Classic PID, but the shared
+        # controller fields are what the new modes use.
         self.cfg["pid"]["kp"] = kp
         self.cfg["pid"]["ki"] = ki
         self.cfg["pid"]["kd"] = kd
 
+        self.cfg["controller"]["kp"] = kp
+        self.cfg["controller"]["ki"] = ki
+        self.cfg["controller"]["kd"] = kd
+        self.cfg["controller"]["deadband_m"] = max(0.0, deadband_m)
+        self.cfg["controller"]["output_limit_us"] = max(1.0, output_limit_us)
+        self.cfg["controller"]["trim_limit_us"] = max(0.0, trim_limit_us)
+        self.cfg["controller"]["trim_velocity_max_mps"] = max(0.0, trim_velocity_max_mps)
+        self.cfg["controller"]["velocity_alpha"] = self.clamp(velocity_alpha, 0.01, 1.0)
+        self.cfg["controller"]["deeper_command_us"] = deeper_command_us
+        self.cfg["controller"]["shallower_command_us"] = shallower_command_us
+
         self.reset()
+
+    def set_controller_mode(self, mode: str):
+        if mode not in CONTROLLER_MODES:
+            return
+        self.cfg["controller"]["mode"] = mode
+        self.controller_mode = mode
+        self.reset_controller_memory(reset_trim=True)
 
     def reset(self):
         cfg = self.cfg
@@ -219,6 +299,7 @@ class VPSim:
         self.reference_area_m2 = cfg["vehicle"]["reference_area_m2"]
         self.drag_coefficient = cfg["vehicle"]["drag_coefficient"]
         self.buoyancy_engine_delta_m3 = cfg["vehicle"]["buoyancy_engine_delta_m3"]
+        self.true_buoyancy_offset_g = cfg["vehicle"].get("true_buoyancy_offset_g", 0.0)
 
         self.weight_force = self.mass * self.g
         self.neutral_buoyancy_force = self.rho * self.g * self.neutral_volume_m3
@@ -233,12 +314,21 @@ class VPSim:
         self.surface_pressure_mbar = cfg["sensor"]["surface_pressure_mbar"]
         self.depth_noise_std_m = cfg["sensor"]["depth_noise_std_m"]
 
-        self.kp = cfg["pid"]["kp"]
-        self.ki = cfg["pid"]["ki"]
-        self.kd = cfg["pid"]["kd"]
+        self.kp = cfg["controller"].get("kp", cfg["pid"]["kp"])
+        self.ki = cfg["controller"].get("ki", cfg["pid"]["ki"])
+        self.kd = cfg["controller"].get("kd", cfg["pid"]["kd"])
         self.pid_interval = cfg["pid"]["interval_s"]
-        self.pid_integral_min = cfg["pid"]["integral_min"]
-        self.pid_integral_max = cfg["pid"]["integral_max"]
+        self.pid_integral_min = cfg["pid"].get("integral_min", -2.0)
+        self.pid_integral_max = cfg["pid"].get("integral_max", 2.0)
+
+        self.controller_mode = cfg["controller"].get("mode", "Classic PID")
+        self.deadband_m = cfg["controller"].get("deadband_m", 0.05)
+        self.output_limit_us = cfg["controller"].get("output_limit_us", 700.0)
+        self.trim_limit_us = cfg["controller"].get("trim_limit_us", 75.0)
+        self.trim_velocity_max_mps = cfg["controller"].get("trim_velocity_max_mps", 0.025)
+        self.velocity_alpha = cfg["controller"].get("velocity_alpha", 0.25)
+        self.deeper_command_us = cfg["controller"].get("deeper_command_us", self.act_neutral + 300.0)
+        self.shallower_command_us = cfg["controller"].get("shallower_command_us", self.act_neutral - 300.0)
 
         self.deep_m = cfg["mission"]["deep_m"]
         self.shallow_m = cfg["mission"]["shallow_m"]
@@ -247,7 +337,6 @@ class VPSim:
         self.tol_m = cfg["mission"]["tol_m"]
         self.surface_tol_m = cfg["mission"]["surface_tol_m"]
 
-        # defaults if not present in config yet
         self.max_transit_s = cfg["mission"].get("max_transit_s", 90.0)
         self.max_hold_s = cfg["mission"].get("max_hold_s", 60.0)
         self.max_recover_s = cfg["mission"].get("max_recover_s", 90.0)
@@ -260,10 +349,6 @@ class VPSim:
         self.measured_depth = 0.0
         self.actuator_us = self.act_idle
 
-        self.pid_integral = 0.0
-        self.pid_prev_error = 0.0
-        self.pid_timer = 0.0
-
         self.running = False
 
         self.current_state = self.DESCEND_1
@@ -272,17 +357,37 @@ class VPSim:
         self.current_target_depth = self.deep_m
         self.current_target_tol = self.tol_m
 
+        self.reset_controller_memory(reset_trim=True)
+
         self.time_hist = []
         self.depth_hist = []
         self.measured_depth_hist = []
         self.target_hist = []
         self.velocity_hist = []
+        self.filtered_velocity_hist = []
         self.actuator_hist = []
+        self.trim_hist = []
         self.state_hist = []
         self.hold_hist = []
 
+    def reset_controller_memory(self, reset_trim=False):
+        self.pid_integral = 0.0
+        self.pid_prev_error = 0.0
+        self.pid_timer = 0.0
+        self.filtered_velocity = 0.0
+        self.last_controller_depth = self.measured_depth
+        if reset_trim:
+            self.adaptive_trim_us = 0.0
+
     def clamp(self, x, lo, hi):
         return max(lo, min(hi, x))
+
+    def sign(self, x):
+        if x > 0:
+            return 1.0
+        if x < 0:
+            return -1.0
+        return 0.0
 
     def actuator_us_to_command(self, us):
         half_range = (self.act_max - self.act_min) / 2.0
@@ -290,6 +395,23 @@ class VPSim:
         cmd = centered / half_range if half_range > 0 else 0.0
         cmd = self.clamp(cmd, -1.0, 1.0)
         return self.act_direction * cmd
+
+    def depth_output_to_actuator_us(self, output_us):
+        """
+        output_us is positive when the controller wants the VP to go deeper.
+        act_direction converts that to the correct actuator polarity.
+        For the LBCC/Rays direction = -1, positive output becomes higher microseconds.
+        """
+        us = self.act_neutral - self.act_direction * output_us
+        return self.clamp(us, self.act_min, self.act_max)
+
+    def update_velocity_filter(self, control_dt):
+        if control_dt <= 0:
+            return self.filtered_velocity
+        raw_velocity = (self.measured_depth - self.last_controller_depth) / control_dt
+        self.last_controller_depth = self.measured_depth
+        self.filtered_velocity += self.velocity_alpha * (raw_velocity - self.filtered_velocity)
+        return self.filtered_velocity
 
     def state_name(self):
         return self.STATE_NAMES[self.current_state]
@@ -321,9 +443,7 @@ class VPSim:
         self.current_state = new_state
         self.state_entry_time = self.t
         self.in_tolerance_start = None
-        self.pid_integral = 0.0
-        self.pid_prev_error = 0.0
-        self.pid_timer = 0.0
+        self.reset_controller_memory(reset_trim=False)
         self.current_target_depth, self.current_target_tol = self.get_target_for_state(new_state)
 
     def state_time(self):
@@ -336,6 +456,92 @@ class VPSim:
         if self.in_tolerance_start is None:
             return 0.0
         return self.t - self.in_tolerance_start
+
+    def run_classic_pid(self, error, control_dt):
+        self.pid_integral += error * control_dt
+        self.pid_integral = self.clamp(self.pid_integral, self.pid_integral_min, self.pid_integral_max)
+
+        derivative = (error - self.pid_prev_error) / control_dt if control_dt > 0 else 0.0
+        self.pid_prev_error = error
+
+        output_us = self.kp * error + self.ki * self.pid_integral + self.kd * derivative
+        output_us = self.clamp(output_us, -self.output_limit_us, self.output_limit_us)
+        return self.depth_output_to_actuator_us(output_us)
+
+    def run_velocity_differential(self, error, control_dt):
+        vel = self.update_velocity_filter(control_dt)
+
+        self.pid_integral += error * control_dt
+        self.pid_integral = self.clamp(self.pid_integral, self.pid_integral_min, self.pid_integral_max)
+
+        # Positive velocity means moving deeper. Subtracting velocity slows descent and fights overshoot.
+        output_us = self.kp * error + self.ki * self.pid_integral - self.kd * vel
+        output_us = self.clamp(output_us, -self.output_limit_us, self.output_limit_us)
+        return self.depth_output_to_actuator_us(output_us)
+
+    def run_adaptive_trim_pid(self, error, control_dt):
+        vel = self.update_velocity_filter(control_dt)
+
+        # The trim only learns when the VP is not near target and is not moving much.
+        # This lets 1500 us remain the desired mechanical neutral, while the sim can
+        # adapt if the real buoyancy is slightly off.
+        if abs(error) > self.deadband_m and abs(vel) < self.trim_velocity_max_mps:
+            self.adaptive_trim_us += self.ki * error * control_dt
+            self.adaptive_trim_us = self.clamp(self.adaptive_trim_us, -self.trim_limit_us, self.trim_limit_us)
+
+        control_error = 0.0 if abs(error) < self.deadband_m else error
+        output_us = self.adaptive_trim_us + self.kp * control_error - self.kd * vel
+        output_us = self.clamp(output_us, -self.output_limit_us, self.output_limit_us)
+        return self.depth_output_to_actuator_us(output_us)
+
+    def run_deadband_potential(self, error, control_dt):
+        vel = self.update_velocity_filter(control_dt)
+
+        # Inside the deadband, the controller outputs neutral and does not build integral.
+        if abs(error) <= self.deadband_m:
+            self.pid_integral = 0.0
+            return self.depth_output_to_actuator_us(0.0)
+
+        # Outside the deadband, only the distance beyond the deadband is controlled.
+        # This avoids a step in output right at the edge of the window.
+        effective_error = self.sign(error) * (abs(error) - self.deadband_m)
+
+        self.pid_integral += effective_error * control_dt
+        self.pid_integral = self.clamp(self.pid_integral, self.pid_integral_min, self.pid_integral_max)
+
+        output_us = self.kp * effective_error + self.ki * self.pid_integral - self.kd * vel
+        output_us = self.clamp(output_us, -self.output_limit_us, self.output_limit_us)
+        return self.depth_output_to_actuator_us(output_us)
+
+    def run_three_state(self, error):
+        # Positive error means target is deeper than measured depth.
+        # VP is above/shallower than target: send the deeper command.
+        if error > self.deadband_m:
+            return self.clamp(self.deeper_command_us, self.act_min, self.act_max)
+
+        # VP is below/deeper than target: send the shallower command.
+        if error < -self.deadband_m:
+            return self.clamp(self.shallower_command_us, self.act_min, self.act_max)
+
+        # Inside the window: do nothing, command neutral.
+        return self.act_neutral
+
+    def run_controller(self, control_dt):
+        error = self.current_target_depth - self.measured_depth
+        mode = self.controller_mode
+
+        if mode == "Classic PID":
+            return self.run_classic_pid(error, control_dt)
+        if mode == "Velocity Differential":
+            return self.run_velocity_differential(error, control_dt)
+        if mode == "Adaptive Trim PID":
+            return self.run_adaptive_trim_pid(error, control_dt)
+        if mode == "Deadband Potential":
+            return self.run_deadband_potential(error, control_dt)
+        if mode == "Three State":
+            return self.run_three_state(error)
+
+        return self.depth_output_to_actuator_us(0.0)
 
     def step(self, dt):
         if not self.running:
@@ -356,7 +562,7 @@ class VPSim:
             else:
                 self.in_tolerance_start = None
 
-        # PID
+        # controller
         self.current_target_depth, self.current_target_tol = self.get_target_for_state(self.current_state)
 
         if self.current_state in {self.IDLE, self.DONE}:
@@ -364,27 +570,9 @@ class VPSim:
         else:
             self.pid_timer += dt
             if self.pid_timer >= self.pid_interval:
+                control_dt = self.pid_timer
                 self.pid_timer = 0.0
-
-                error = self.current_target_depth - self.measured_depth
-                self.pid_integral += error * self.pid_interval
-                self.pid_integral = self.clamp(
-                    self.pid_integral,
-                    self.pid_integral_min,
-                    self.pid_integral_max
-                )
-
-                derivative = (error - self.pid_prev_error) / self.pid_interval
-                self.pid_prev_error = error
-
-                output_us = (
-                    self.kp * error
-                    + self.ki * self.pid_integral
-                    + self.kd * derivative
-                )
-
-                self.actuator_us = self.act_neutral + output_us
-                self.actuator_us = self.clamp(self.actuator_us, self.act_min, self.act_max)
+                self.actuator_us = self.run_controller(control_dt)
 
         # mission state machine
         st = self.current_state
@@ -438,7 +626,8 @@ class VPSim:
         # physics
         u = self.actuator_us_to_command(self.actuator_us)
 
-        buoyancy_force = self.neutral_buoyancy_force + u * self.max_buoyancy_delta
+        buoyancy_offset_force = (self.true_buoyancy_offset_g / 1000.0) * self.g
+        buoyancy_force = self.neutral_buoyancy_force + u * self.max_buoyancy_delta + buoyancy_offset_force
         weight_force = self.weight_force
 
         drag_force = (
@@ -465,7 +654,9 @@ class VPSim:
         self.measured_depth_hist.append(self.measured_depth)
         self.target_hist.append(self.current_target_depth if self.state_has_target() else 0.0)
         self.velocity_hist.append(self.true_velocity)
+        self.filtered_velocity_hist.append(self.filtered_velocity)
         self.actuator_hist.append(self.actuator_us)
+        self.trim_hist.append(self.adaptive_trim_us)
         self.state_hist.append(self.current_state)
         self.hold_hist.append(self.hold_elapsed())
 
@@ -476,7 +667,9 @@ class VPSim:
             self.measured_depth_hist = self.measured_depth_hist[-max_points:]
             self.target_hist = self.target_hist[-max_points:]
             self.velocity_hist = self.velocity_hist[-max_points:]
+            self.filtered_velocity_hist = self.filtered_velocity_hist[-max_points:]
             self.actuator_hist = self.actuator_hist[-max_points:]
+            self.trim_hist = self.trim_hist[-max_points:]
             self.state_hist = self.state_hist[-max_points:]
             self.hold_hist = self.hold_hist[-max_points:]
 
@@ -486,12 +679,12 @@ sim = VPSim(SELECTED_VP)
 # -----------------------------
 # Figure layout
 # -----------------------------
-fig = plt.figure(figsize=(15, 8))
+fig = plt.figure(figsize=(16, 9))
 
 # Leave space on the left for controls and on the bottom for buttons
 gs = fig.add_gridspec(
     2, 3,
-    left=0.22, right=0.98, top=0.92, bottom=0.12,
+    left=0.31, right=0.98, top=0.92, bottom=0.12,
     width_ratios=[1.2, 1.2, 0.9],
     height_ratios=[1, 1],
     wspace=0.30, hspace=0.30
@@ -501,7 +694,7 @@ ax_depth_plot = fig.add_subplot(gs[0, 0:2])
 ax_act_plot = fig.add_subplot(gs[1, 0:2])
 ax_depth_graphic = fig.add_subplot(gs[:, 2])
 
-fig.suptitle(f"VP Simulator - Step 1 - {SELECTED_VP}", fontsize=14)
+fig.suptitle(f"VP Simulator - {SELECTED_VP}", fontsize=14)
 
 # Depth plot
 line_true_depth, = ax_depth_plot.plot([], [], label="True Depth (m)")
@@ -515,9 +708,10 @@ ax_depth_plot.legend()
 
 # Actuator plot
 line_actuator, = ax_act_plot.plot([], [], label="Actuator (us)")
-ax_act_plot.axhline(sim.act_neutral, linestyle="--", label="Neutral")
+line_trim, = ax_act_plot.plot([], [], "--", label="Adaptive Trim (us offset)")
+neutral_line = ax_act_plot.axhline(sim.act_neutral, linestyle="--", label="Neutral")
 ax_act_plot.set_xlabel("Time (s)")
-ax_act_plot.set_ylabel("Actuator (us)")
+ax_act_plot.set_ylabel("Actuator / Trim")
 ax_act_plot.grid(True)
 ax_act_plot.legend()
 
@@ -545,24 +739,34 @@ status_text = ax_depth_graphic.text(
     transform=ax_depth_graphic.transAxes,
     va="top",
     ha="left",
-    fontsize=10,
+    fontsize=9,
     family="monospace"
 )
 
-# VP selector
-ax_radio = fig.add_axes([0.03, 0.62, 0.15, 0.22])
+# -----------------------------
+# Controls
+# -----------------------------
+ax_radio_vp = fig.add_axes([0.02, 0.76, 0.125, 0.17])
 radio_vp = RadioButtons(
-    ax_radio,
+    ax_radio_vp,
     labels=list(VP_CONFIGS.keys()),
     active=list(VP_CONFIGS.keys()).index(SELECTED_VP)
 )
-ax_radio.set_title("VP Select", fontsize=10)
+ax_radio_vp.set_title("VP Select", fontsize=10)
 
-# Buttons along bottom-left
-ax_btn_start = fig.add_axes([0.03, 0.04, 0.10, 0.05])
-ax_btn_pause = fig.add_axes([0.14, 0.04, 0.10, 0.05])
-ax_btn_reset = fig.add_axes([0.25, 0.04, 0.10, 0.05])
-ax_btn_apply = fig.add_axes([0.03, 0.085, 0.12, 0.04])
+ax_radio_controller = fig.add_axes([0.16, 0.70, 0.13, 0.23])
+radio_controller = RadioButtons(
+    ax_radio_controller,
+    labels=CONTROLLER_MODES,
+    active=CONTROLLER_MODES.index(sim.controller_mode)
+)
+ax_radio_controller.set_title("Controller", fontsize=10)
+
+# Buttons
+ax_btn_start = fig.add_axes([0.02, 0.04, 0.08, 0.045])
+ax_btn_pause = fig.add_axes([0.11, 0.04, 0.08, 0.045])
+ax_btn_reset = fig.add_axes([0.20, 0.04, 0.08, 0.045])
+ax_btn_apply = fig.add_axes([0.02, 0.095, 0.10, 0.04])
 
 btn_start = Button(ax_btn_start, "Start")
 btn_pause = Button(ax_btn_pause, "Pause")
@@ -570,38 +774,62 @@ btn_reset = Button(ax_btn_reset, "Reset")
 btn_apply = Button(ax_btn_apply, "Apply")
 
 # Mission card
-fig.text(0.03, 0.57, "Mission Settings", fontsize=10, weight="bold")
+fig.text(0.02, 0.665, "Mission", fontsize=10, weight="bold")
 
-ax_box_deep = fig.add_axes([0.03, 0.53, 0.12, 0.035])
-ax_box_shallow = fig.add_axes([0.03, 0.485, 0.12, 0.035])
-ax_box_surface = fig.add_axes([0.03, 0.44, 0.12, 0.035])
-ax_box_hold = fig.add_axes([0.03, 0.395, 0.12, 0.035])
-ax_box_tol = fig.add_axes([0.03, 0.35, 0.12, 0.035])
-ax_box_stol = fig.add_axes([0.03, 0.305, 0.12, 0.035])
+ax_box_deep = fig.add_axes([0.02, 0.625, 0.105, 0.03])
+ax_box_shallow = fig.add_axes([0.02, 0.585, 0.105, 0.03])
+ax_box_surface = fig.add_axes([0.02, 0.545, 0.105, 0.03])
+ax_box_hold = fig.add_axes([0.02, 0.505, 0.105, 0.03])
+ax_box_tol = fig.add_axes([0.02, 0.465, 0.105, 0.03])
+ax_box_stol = fig.add_axes([0.02, 0.425, 0.105, 0.03])
 
-box_deep = TextBox(ax_box_deep, "Deep m ", initial=str(sim.cfg["mission"]["deep_m"]))
+box_deep = TextBox(ax_box_deep, "Deep ", initial=str(sim.cfg["mission"]["deep_m"]))
 box_shallow = TextBox(ax_box_shallow, "Shallow ", initial=str(sim.cfg["mission"]["shallow_m"]))
 box_surface = TextBox(ax_box_surface, "Surface ", initial=str(sim.cfg["mission"]["surface_m"]))
-box_hold = TextBox(ax_box_hold, "Hold s ", initial=str(sim.cfg["mission"]["hold_s"]))
-box_tol = TextBox(ax_box_tol, "Tol m ", initial=str(sim.cfg["mission"]["tol_m"]))
+box_hold = TextBox(ax_box_hold, "Hold ", initial=str(sim.cfg["mission"]["hold_s"]))
+box_tol = TextBox(ax_box_tol, "Tol ", initial=str(sim.cfg["mission"]["tol_m"]))
 box_stol = TextBox(ax_box_stol, "Surf tol ", initial=str(sim.cfg["mission"]["surface_tol_m"]))
 
-# PID card
-fig.text(0.03, 0.255, "PID Settings", fontsize=10, weight="bold")
+# Physics card
+fig.text(0.02, 0.375, "Physics", fontsize=10, weight="bold")
+ax_box_buoy = fig.add_axes([0.02, 0.335, 0.105, 0.03])
+ax_box_engine = fig.add_axes([0.02, 0.295, 0.105, 0.03])
+box_buoy = TextBox(ax_box_buoy, "Buoy g ", initial=str(sim.cfg["vehicle"].get("true_buoyancy_offset_g", 0.0)))
+box_engine = TextBox(ax_box_engine, "Engine mL ", initial=str(sim.cfg["vehicle"]["buoyancy_engine_delta_m3"] * 1.0e6))
 
-ax_box_kp = fig.add_axes([0.03, 0.215, 0.12, 0.035])
-ax_box_ki = fig.add_axes([0.03, 0.17, 0.12, 0.035])
-ax_box_kd = fig.add_axes([0.03, 0.125, 0.12, 0.035])
+# Controller card
+fig.text(0.155, 0.665, "Controller Settings", fontsize=10, weight="bold")
 
-box_kp = TextBox(ax_box_kp, "Kp ", initial=str(sim.cfg["pid"]["kp"]))
-box_ki = TextBox(ax_box_ki, "Ki ", initial=str(sim.cfg["pid"]["ki"]))
-box_kd = TextBox(ax_box_kd, "Kd ", initial=str(sim.cfg["pid"]["kd"]))
+ax_box_kp = fig.add_axes([0.155, 0.625, 0.115, 0.03])
+ax_box_ki = fig.add_axes([0.155, 0.585, 0.115, 0.03])
+ax_box_kd = fig.add_axes([0.155, 0.545, 0.115, 0.03])
+ax_box_deadband = fig.add_axes([0.155, 0.505, 0.115, 0.03])
+ax_box_output_limit = fig.add_axes([0.155, 0.465, 0.115, 0.03])
+ax_box_trim_limit = fig.add_axes([0.155, 0.425, 0.115, 0.03])
+ax_box_trim_vel = fig.add_axes([0.155, 0.385, 0.115, 0.03])
+ax_box_vel_alpha = fig.add_axes([0.155, 0.345, 0.115, 0.03])
+ax_box_deeper_cmd = fig.add_axes([0.155, 0.305, 0.115, 0.03])
+ax_box_shallower_cmd = fig.add_axes([0.155, 0.265, 0.115, 0.03])
+
+box_kp = TextBox(ax_box_kp, "Kp ", initial=str(sim.cfg["controller"]["kp"]))
+box_ki = TextBox(ax_box_ki, "Ki/trim ", initial=str(sim.cfg["controller"]["ki"]))
+box_kd = TextBox(ax_box_kd, "Kd/vel ", initial=str(sim.cfg["controller"]["kd"]))
+box_deadband = TextBox(ax_box_deadband, "DB m ", initial=str(sim.cfg["controller"]["deadband_m"]))
+box_output_limit = TextBox(ax_box_output_limit, "Out lim ", initial=str(sim.cfg["controller"]["output_limit_us"]))
+box_trim_limit = TextBox(ax_box_trim_limit, "Trim lim ", initial=str(sim.cfg["controller"]["trim_limit_us"]))
+box_trim_vel = TextBox(ax_box_trim_vel, "Trim vel ", initial=str(sim.cfg["controller"]["trim_velocity_max_mps"]))
+box_vel_alpha = TextBox(ax_box_vel_alpha, "Vel alpha ", initial=str(sim.cfg["controller"]["velocity_alpha"]))
+box_deeper_cmd = TextBox(ax_box_deeper_cmd, "Deep us ", initial=str(sim.cfg["controller"]["deeper_command_us"]))
+box_shallower_cmd = TextBox(ax_box_shallower_cmd, "Shallow us ", initial=str(sim.cfg["controller"]["shallower_command_us"]))
+
 
 def on_start(event):
     sim.running = True
 
+
 def on_pause(event):
     sim.running = False
+
 
 def refresh_textboxes():
     box_deep.set_val(str(sim.cfg["mission"]["deep_m"]))
@@ -611,17 +839,34 @@ def refresh_textboxes():
     box_tol.set_val(str(sim.cfg["mission"]["tol_m"]))
     box_stol.set_val(str(sim.cfg["mission"]["surface_tol_m"]))
 
-    box_kp.set_val(str(sim.cfg["pid"]["kp"]))
-    box_ki.set_val(str(sim.cfg["pid"]["ki"]))
-    box_kd.set_val(str(sim.cfg["pid"]["kd"]))
+    box_buoy.set_val(str(sim.cfg["vehicle"].get("true_buoyancy_offset_g", 0.0)))
+    box_engine.set_val(str(sim.cfg["vehicle"]["buoyancy_engine_delta_m3"] * 1.0e6))
+
+    box_kp.set_val(str(sim.cfg["controller"]["kp"]))
+    box_ki.set_val(str(sim.cfg["controller"]["ki"]))
+    box_kd.set_val(str(sim.cfg["controller"]["kd"]))
+    box_deadband.set_val(str(sim.cfg["controller"]["deadband_m"]))
+    box_output_limit.set_val(str(sim.cfg["controller"]["output_limit_us"]))
+    box_trim_limit.set_val(str(sim.cfg["controller"]["trim_limit_us"]))
+    box_trim_vel.set_val(str(sim.cfg["controller"]["trim_velocity_max_mps"]))
+    box_vel_alpha.set_val(str(sim.cfg["controller"]["velocity_alpha"]))
+    box_deeper_cmd.set_val(str(sim.cfg["controller"]["deeper_command_us"]))
+    box_shallower_cmd.set_val(str(sim.cfg["controller"]["shallower_command_us"]))
+
 
 def on_reset(event):
     sim.reset()
     refresh_textboxes()
 
+
 def on_select_vp(label):
     sim.load_config(label)
     refresh_textboxes()
+
+
+def on_select_controller(label):
+    sim.set_controller_mode(label)
+
 
 def on_apply(event):
     try:
@@ -632,9 +877,19 @@ def on_apply(event):
         tol_m = float(box_tol.text)
         surface_tol_m = float(box_stol.text)
 
+        true_buoyancy_offset_g = float(box_buoy.text)
+        engine_ml = float(box_engine.text)
+
         kp = float(box_kp.text)
         ki = float(box_ki.text)
         kd = float(box_kd.text)
+        deadband_m = float(box_deadband.text)
+        output_limit_us = float(box_output_limit.text)
+        trim_limit_us = float(box_trim_limit.text)
+        trim_velocity_max_mps = float(box_trim_vel.text)
+        velocity_alpha = float(box_vel_alpha.text)
+        deeper_command_us = float(box_deeper_cmd.text)
+        shallower_command_us = float(box_shallower_cmd.text)
 
         sim.apply_settings(
             deep_m=deep_m,
@@ -643,18 +898,29 @@ def on_apply(event):
             hold_s=hold_s,
             tol_m=tol_m,
             surface_tol_m=surface_tol_m,
+            true_buoyancy_offset_g=true_buoyancy_offset_g,
+            engine_ml=engine_ml,
             kp=kp,
             ki=ki,
             kd=kd,
+            deadband_m=deadband_m,
+            output_limit_us=output_limit_us,
+            trim_limit_us=trim_limit_us,
+            trim_velocity_max_mps=trim_velocity_max_mps,
+            velocity_alpha=velocity_alpha,
+            deeper_command_us=deeper_command_us,
+            shallower_command_us=shallower_command_us,
         )
     except ValueError:
-        print("Invalid input in mission/PID fields")
+        print("Invalid input in one or more fields")
+
 
 btn_start.on_clicked(on_start)
 btn_pause.on_clicked(on_pause)
 btn_reset.on_clicked(on_reset)
 btn_apply.on_clicked(on_apply)
 radio_vp.on_clicked(on_select_vp)
+radio_controller.on_clicked(on_select_controller)
 
 # -----------------------------
 # Animation update
@@ -677,6 +943,9 @@ def update(frame):
 
     # Update actuator plot
     line_actuator.set_data(sim.time_hist, sim.actuator_hist)
+    # Plot trim as neutral + trim so it is visible on the same scale as actuator us.
+    trim_visible = [sim.act_neutral + x for x in sim.trim_hist]
+    line_trim.set_data(sim.time_hist, trim_visible)
     if len(sim.time_hist) > 2:
         ax_act_plot.set_xlim(max(0, sim.time_hist[0]), sim.time_hist[-1] + 1.0)
         ax_act_plot.set_ylim(sim.act_min - 50, sim.act_max + 50)
@@ -704,30 +973,38 @@ def update(frame):
         alpha=0.25
     )
 
+    error = sim.current_target_depth - sim.measured_depth
     status_text.set_text(
         f"VP: {sim.cfg_name}\n"
+        f"mode: {sim.controller_mode}\n"
         f"running: {sim.running}\n"
         f"state: {sim.state_name()}\n"
         f"t: {sim.t:6.1f} s\n"
         f"depth: {sim.true_depth:6.3f} m\n"
         f"meas: {sim.measured_depth:6.3f} m\n"
+        f"error: {error:6.3f} m\n"
         f"vel: {sim.true_velocity:6.3f} m/s\n"
+        f"filt vel: {sim.filtered_velocity:6.3f}\n"
         f"target: {sim.current_target_depth:6.3f} m\n"
         f"hold: {sim.hold_elapsed():6.1f} s\n"
-        f"act: {sim.actuator_us:6.1f} us"
+        f"act: {sim.actuator_us:6.1f} us\n"
+        f"trim: {sim.adaptive_trim_us:6.1f} us\n"
+        f"buoy: {sim.true_buoyancy_offset_g:6.1f} g"
     )
 
-    fig.suptitle(f"VP Simulator - Step 1 - {sim.cfg_name}", fontsize=14)
+    fig.suptitle(f"VP Simulator - {sim.cfg_name} - {sim.controller_mode}", fontsize=14)
 
     return (
         line_true_depth,
         line_meas_depth,
         line_target_depth,
         line_actuator,
+        line_trim,
         current_marker,
         target_marker,
         status_text,
     )
+
 
 ani = FuncAnimation(fig, update, interval=50, blit=False)
 plt.show()
