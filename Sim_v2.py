@@ -1006,5 +1006,5 @@ def update(frame):
     )
 
 
-ani = FuncAnimation(fig, update, interval=50, blit=False)
+ani = FuncAnimation(fig, update, interval=50, cache_frame_data=False)
 plt.show()
