@@ -12,6 +12,7 @@ CONTROLLER_MODES = [
     "Adaptive Trim PID",
     "Deadband Potential",
     "Three State",
+    "Five State",
 ]
 
 VP_CONFIGS = {
@@ -57,15 +58,17 @@ VP_CONFIGS = {
             "trim_limit_us": 75.0,
             "trim_velocity_max_mps": 0.025,
             "velocity_alpha": 0.25,
-            "deeper_command_us": 1850.0,
-            "shallower_command_us": 1150.0,
+            "deeper_command_us": 1800.0,
+            "shallower_command_us": 1200.0,
+            "fast_deeper_command_us": 2400.0,
+            "fast_shallower_command_us": 600.0,
         },
         "mission": {
             "deep_m": 2.50,
             "shallow_m": 0.40,
             "surface_m": 0.02,
             "hold_s": 30.0,
-            "tol_m": 0.05,
+            "tol_m": 0.30,
             "surface_tol_m": 0.05,
             "max_transit_s": 90.0,
             "max_hold_s": 60.0,
@@ -252,6 +255,8 @@ class VPSim:
         velocity_alpha,
         deeper_command_us,
         shallower_command_us,
+        fast_deeper_command_us,
+        fast_shallower_command_us,
     ):
         self.cfg["mission"]["deep_m"] = deep_m
         self.cfg["mission"]["shallow_m"] = shallow_m
@@ -279,6 +284,8 @@ class VPSim:
         self.cfg["controller"]["velocity_alpha"] = self.clamp(velocity_alpha, 0.01, 1.0)
         self.cfg["controller"]["deeper_command_us"] = deeper_command_us
         self.cfg["controller"]["shallower_command_us"] = shallower_command_us
+        self.cfg["controller"]["fast_deeper_command_us"] = fast_deeper_command_us,
+        self.cfg["controller"]["fast_shallower_command_us"] = fast_shallower_command_us
 
         self.reset()
 
@@ -329,6 +336,8 @@ class VPSim:
         self.velocity_alpha = cfg["controller"].get("velocity_alpha", 0.25)
         self.deeper_command_us = cfg["controller"].get("deeper_command_us", self.act_neutral + 300.0)
         self.shallower_command_us = cfg["controller"].get("shallower_command_us", self.act_neutral - 300.0)
+        self.fast_deeper_command_us = cfg["controller"].get("fast_deeper_command_us", self.act_neutral + 600.0)
+        self.fast_shallower_command_us = cfg["controller"].get("fast_shallower_command_us", self.act_neutral - 600.0)
 
         self.deep_m = cfg["mission"]["deep_m"]
         self.shallow_m = cfg["mission"]["shallow_m"]
@@ -526,6 +535,26 @@ class VPSim:
         # Inside the window: do nothing, command neutral.
         return self.act_neutral
 
+    def run_five_state(self, error): 
+
+        if error > self.tol_m:
+            return self.fast_deeper_command_us
+
+        # Positive error means target is deeper than measured depth.
+        # VP is above/shallower than target: send the deeper command.
+        if error > self.deadband_m:
+            return self.deeper_command_us
+
+        if error < -self.tol_m:
+            return self.fast_shallower_command_us
+
+        # VP is below/deeper than target: send the shallower command.
+        if error < -self.deadband_m:
+            return self.shallower_command_us
+
+        # Inside the window: do nothing, command neutral.
+        return self.act_neutral
+
     def run_controller(self, control_dt):
         error = self.current_target_depth - self.measured_depth
         mode = self.controller_mode
@@ -540,6 +569,8 @@ class VPSim:
             return self.run_deadband_potential(error, control_dt)
         if mode == "Three State":
             return self.run_three_state(error)
+        if mode == "Five State":
+            return self.run_five_state(error)
 
         return self.depth_output_to_actuator_us(0.0)
 
@@ -810,6 +841,8 @@ ax_box_trim_vel = fig.add_axes([0.155, 0.385, 0.115, 0.03])
 ax_box_vel_alpha = fig.add_axes([0.155, 0.345, 0.115, 0.03])
 ax_box_deeper_cmd = fig.add_axes([0.155, 0.305, 0.115, 0.03])
 ax_box_shallower_cmd = fig.add_axes([0.155, 0.265, 0.115, 0.03])
+ax_box_fast_deeper_cmd = fig.add_axes([0.155, 0.225, 0.115, 0.03])
+ax_box_fast_shallower_cmd = fig.add_axes([0.155, 0.185, 0.115, 0.03])
 
 box_kp = TextBox(ax_box_kp, "Kp ", initial=str(sim.cfg["controller"]["kp"]))
 box_ki = TextBox(ax_box_ki, "Ki/trim ", initial=str(sim.cfg["controller"]["ki"]))
@@ -821,6 +854,8 @@ box_trim_vel = TextBox(ax_box_trim_vel, "Trim vel ", initial=str(sim.cfg["contro
 box_vel_alpha = TextBox(ax_box_vel_alpha, "Vel alpha ", initial=str(sim.cfg["controller"]["velocity_alpha"]))
 box_deeper_cmd = TextBox(ax_box_deeper_cmd, "Deep us ", initial=str(sim.cfg["controller"]["deeper_command_us"]))
 box_shallower_cmd = TextBox(ax_box_shallower_cmd, "Shallow us ", initial=str(sim.cfg["controller"]["shallower_command_us"]))
+box_fast_deeper_cmd = TextBox(ax_box_fast_deeper_cmd, "Fast Deep us ", initial=str(sim.cfg["controller"]["fast_deeper_command_us"]))
+box_fast_shallower_cmd = TextBox(ax_box_fast_shallower_cmd, "Fast Shallow us ", initial=str(sim.cfg["controller"]["fast_shallower_command_us"]))
 
 
 def on_start(event):
@@ -852,6 +887,8 @@ def refresh_textboxes():
     box_vel_alpha.set_val(str(sim.cfg["controller"]["velocity_alpha"]))
     box_deeper_cmd.set_val(str(sim.cfg["controller"]["deeper_command_us"]))
     box_shallower_cmd.set_val(str(sim.cfg["controller"]["shallower_command_us"]))
+    box_fast_deeper_cmd.set_val(str(sim.cfg["controller"]["fast_deeper_command_us"]))
+    box_fast_shallower_cmd.set_val(str(sim.cfg["controller"]["fast_shallower_command_us"]))
 
 
 def on_reset(event):
@@ -890,6 +927,8 @@ def on_apply(event):
         velocity_alpha = float(box_vel_alpha.text)
         deeper_command_us = float(box_deeper_cmd.text)
         shallower_command_us = float(box_shallower_cmd.text)
+        fast_deeper_command_us = float(box_fast_deeper_cmd.text)
+        fast_shallower_command_us = float(box_fast_shallower_cmd.text)
 
         sim.apply_settings(
             deep_m=deep_m,
@@ -910,6 +949,8 @@ def on_apply(event):
             velocity_alpha=velocity_alpha,
             deeper_command_us=deeper_command_us,
             shallower_command_us=shallower_command_us,
+            fast_deeper_command_us=fast_deeper_command_us,
+            fast_shallower_command_us=fast_shallower_command_us,
         )
     except ValueError:
         print("Invalid input in one or more fields")
