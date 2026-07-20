@@ -4,7 +4,7 @@
 
 This project is a Python-based simulator for testing and tuning vertical profiler control systems.
 
-The goal of this project is to make a simple and easy test bed for tuning PID loops on different vertical profilers. Instead of needing to test every controller change on physical hardware, the simulator allows different profiler designs to be modeled with approximate mass, volume, buoyancy engine size, actuator range, drag, water density, and mission settings.
+The goal of this project is to create a practical test bed for tuning vertical profiler controllers before testing on physical hardware. The simulator models approximate mass, volume, buoyancy engine size, actuator range, drag, water density, and mission settings so different profiler designs and control strategies can be compared quickly.
 
 The simulator is designed for early testing, controller tuning, and design comparison. It helps show how a vertical profiler responds to different PID gains, vehicle properties, actuator behavior, and target depths.
 
@@ -24,38 +24,6 @@ This simulator was created to help answer questions such as:
 * What happens when the same PID values are used on different profiler designs?
 * How does the mission behave when the profiler has limited buoyancy force?
 * Would a different controller work better than a basic PID loop?
-
-## Included Vehicle Profiles
-
-The simulator currently includes three profiler configurations:
-
-### LBCC 2026
-
-A vertical profiler configuration using:
-
-* Mass: 1.2 kg
-* Water density: 1023 kg/m³
-* Neutral volume: 0.001173 m³
-* Reference area: 0.0070 m²
-* Drag coefficient: 0.9
-* Buoyancy engine delta: 19.6 ml
-* Actuator range: 500–2500 µs
-* Neutral command: 1500 µs
-
-### Rays 2026
-
-### Rays 2024
-
-An earlier profiler configuration using:
-
-* Mass: 1.8 kg
-* Water density: 997 kg/m³
-* Neutral volume: 0.001805 m³
-* Reference area: 0.0080 m²
-* Drag coefficient: 0.8
-* Buoyancy engine delta: 26.0 ml
-* Actuator range: 1000–1300 µs
-* Neutral command: 1150 µs
 
 ## PID Control
 
